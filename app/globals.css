@@ -1,26 +1,50 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+
+  --background: #0B0B10;
+  --foreground: #F5F5F7;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-bg: #0B0B10;
+  --color-surface: #16161D;
+  --color-elevated: #1F1F28;
+  --color-line: #2A2A36;
+  --color-fg: #F5F5F7;
+  --color-fg-muted: #A1A1AA;
+  --color-fg-dim: #6B7280;
+  --color-brand: #8BAE66;
+  --color-success: #22C55E;
+  --color-danger: #EF4444;
+  --color-cycle: #E26D9A;
+  --color-accent2: #6AA8FF;
+  --color-amber: #C9A227;
+  --color-violet: #A78BFA;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  overscroll-behavior: none;
+}
+
+input, textarea, select {
+  font-size: 16px;
+}
+
+@supports (padding-top: env(safe-area-inset-top)) {
+  .safe-top { padding-top: env(safe-area-inset-top); }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
 }
