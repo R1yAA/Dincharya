@@ -44,9 +44,16 @@ export function useStudy(date?: string) {
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
+      await supabase.from("recall_items").delete().eq("study_log_id", id);
       await supabase.from("study_logs").delete().eq("id", id);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["study"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["study"] });
+      qc.invalidateQueries({ queryKey: ["recall"] });
+      qc.invalidateQueries({ queryKey: ["recall-today"] });
+      qc.invalidateQueries({ queryKey: ["recall-date"] });
+      qc.invalidateQueries({ queryKey: ["recall-month"] });
+    },
   });
 
   const subjectsQuery = useQuery({

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Check, Circle } from "lucide-react";
+import { Check, Circle, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Fab } from "@/components/layout/fab";
 import { Card } from "@/components/ui/card";
@@ -109,9 +109,20 @@ export default function StudyPage() {
                             {log.duration_min && <span>{log.duration_min}min</span>}
                           </div>
                         </div>
-                        {log.confidence && (
-                          <RatingDisplay value={log.confidence} color="bg-violet" />
-                        )}
+                        <div className="flex items-center gap-2 shrink-0">
+                          {log.confidence && (
+                            <RatingDisplay value={log.confidence} color="bg-violet" />
+                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleting(log.id);
+                            }}
+                            className="p-2 text-fg-dim hover:text-danger transition-colors"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </Card>
