@@ -1,38 +1,34 @@
 "use client";
 
-import { Meal } from "@/lib/supabase/types";
-import { MEAL_CATEGORIES } from "@/lib/categories/meals";
+import { Meal, MealHealthRating } from "@/lib/supabase/types";
 import { cn } from "@/lib/utils";
 
-const CATEGORY_COLORS: Record<string, string> = {
-  "home-healthy": "bg-success",
-  "home-snack": "bg-amber",
-  "home-quick": "bg-brand",
-  "out-healthy": "bg-accent2",
-  "out-snack": "bg-cycle",
-  "out-quick": "bg-danger",
-  "beverage": "bg-violet",
-  "dessert": "bg-cycle",
-  "other-meal": "bg-fg-dim",
-};
+const RATING_META: { id: MealHealthRating | "unset"; label: string; color: string }[] = [
+  { id: "healthy", label: "Healthy", color: "bg-success" },
+  { id: "okay", label: "Okay", color: "bg-amber" },
+  { id: "junk", label: "Junk", color: "bg-danger" },
+  { id: "unset", label: "Untagged", color: "bg-fg-dim" },
+];
 
+/** At-a-glance "how clean were my meals" composition for a set of meals. */
 export function MealMixBar({ meals }: { meals: Meal[] }) {
   if (meals.length === 0) return null;
 
   const counts: Record<string, number> = {};
   meals.forEach((m) => {
-    counts[m.category] = (counts[m.category] || 0) + 1;
+    const key = m.health_rating ?? "unset";
+    counts[key] = (counts[key] || 0) + 1;
   });
   const total = meals.length;
 
   return (
     <div className="flex h-2 rounded-full overflow-hidden bg-elevated">
-      {Object.entries(counts).map(([cat, count]) => (
+      {RATING_META.filter((r) => counts[r.id]).map((r) => (
         <div
-          key={cat}
-          className={cn("h-full", CATEGORY_COLORS[cat] || "bg-fg-dim")}
-          style={{ width: `${(count / total) * 100}%` }}
-          title={`${MEAL_CATEGORIES.find((c) => c.id === cat)?.name || cat}: ${count}`}
+          key={r.id}
+          className={cn("h-full", r.color)}
+          style={{ width: `${(counts[r.id] / total) * 100}%` }}
+          title={`${r.label}: ${counts[r.id]}`}
         />
       ))}
     </div>

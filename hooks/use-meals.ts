@@ -52,3 +52,26 @@ export function useMeals(date?: string) {
 
   return { meals: query.data || [], isLoading: query.isLoading, upsert, remove };
 }
+
+/** Fetch meals within an inclusive [from, to] date range — for week/month calendar views. */
+export function useMealsRange(from: string, to: string) {
+  const { workspace } = useWorkspace();
+
+  const query = useQuery({
+    queryKey: ["meals-range", workspace, from, to],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("meals")
+        .select("*")
+        .eq("workspace", workspace!)
+        .gte("date", from)
+        .lte("date", to)
+        .order("date", { ascending: true })
+        .order("time", { ascending: true });
+      return (data || []) as Meal[];
+    },
+    enabled: !!workspace && !!from && !!to,
+  });
+
+  return { meals: query.data || [], isLoading: query.isLoading };
+}

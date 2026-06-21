@@ -24,6 +24,30 @@ export const MEAL_SLOTS = [
   "drink",
 ] as const;
 
+// --- Structured axes (replace overloaded `category`) ---
+export const MEAL_SOURCES = [
+  { id: "home", emoji: "🏠", label: "Home" },
+  { id: "office", emoji: "🏢", label: "Office" },
+  { id: "outside", emoji: "🍴", label: "Outside" },
+  { id: "packaged", emoji: "📦", label: "Packaged" },
+] as const;
+
+export const MEAL_HEALTH_RATINGS = [
+  { id: "healthy", emoji: "🥗", label: "Healthy" },
+  { id: "okay", emoji: "🤷", label: "Okay" },
+  { id: "junk", emoji: "🍟", label: "Junk" },
+] as const;
+
+// Seeded multi-select vocabulary, grounded in real logging patterns.
+export const MEAL_TAGS = [
+  "fried",
+  "alcohol",
+  "caffeine",
+  "gut/probiotic",
+  "fruit-veg",
+  "heavy",
+] as const;
+
 export const FELT_OPTIONS = [
   { id: "good", emoji: "😀", label: "Felt good" },
   { id: "neutral", emoji: "😐", label: "Neutral" },

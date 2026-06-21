@@ -22,9 +22,8 @@ import { useHair } from "@/hooks/use-hair";
 import { useStudy } from "@/hooks/use-study";
 import { useRecall } from "@/hooks/use-recall";
 import { useSettings } from "@/hooks/use-settings";
-import { useCustomCategories } from "@/hooks/use-custom-categories";
 import { useToast } from "@/components/ui/toast";
-import { categoryById } from "@/lib/categories/meals";
+import { MEAL_SOURCES } from "@/lib/categories/meals";
 import { currentCycle } from "@/lib/cycle";
 import { todayStr, formatTime } from "@/lib/format";
 import Link from "next/link";
@@ -41,7 +40,6 @@ export default function TodayPage() {
   const { logs: studyLogs, upsert: upsertStudy, subjects } = useStudy(date);
   const { dueCount, completionPct, todayReviewed, createReminders } = useRecall();
   const { settings } = useSettings();
-  const { customCategories, addCategory } = useCustomCategories();
   const { toast } = useToast();
 
   const [sheet, setSheet] = useState<QuickSheet>(null);
@@ -96,10 +94,11 @@ export default function TodayPage() {
           {meals.length > 0 ? (
             <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
               {meals.map((m) => {
-                const cat = categoryById(m.category, customCategories);
+                const emoji =
+                  MEAL_SOURCES.find((s) => s.id === m.source)?.emoji ?? "🍽️";
                 return (
                   <Chip key={m.id} className="shrink-0" onClick={() => setSheet("meal")}>
-                    {cat.emoji} {formatTime(m.time) || m.name}
+                    {emoji} {formatTime(m.time) || m.name}
                   </Chip>
                 );
               })}
@@ -268,8 +267,7 @@ export default function TodayPage() {
         open={sheet === "meal"}
         onOpenChange={(o) => !o && setSheet(null)}
         initial={null}
-        customCategories={customCategories}
-        onAddCustom={addCategory}
+        defaultDate={date}
         onSave={(meal) => {
           upsertMeal.mutate({ ...meal, date }, { onSuccess: () => toast("Meal logged") });
         }}
