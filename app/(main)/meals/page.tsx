@@ -1,13 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Fab } from "@/components/layout/fab";
 import { Card } from "@/components/ui/card";
-import { Chip } from "@/components/ui/chip";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { DateStepper } from "@/components/layout/date-stepper";
+import { PeriodBar } from "@/components/ui/period-bar";
 import { MealForm } from "@/components/meals/meal-form";
 import { MealListItem } from "@/components/meals/meal-list-item";
 import { MealMixBar } from "@/components/meals/meal-mix-bar";
@@ -19,38 +18,22 @@ import { useSupplements } from "@/hooks/use-supplements";
 import { useToast } from "@/components/ui/toast";
 import { Meal, Supplement } from "@/lib/supabase/types";
 import { groupLabel, todayStr } from "@/lib/format";
-import { weekDates, monthMatrix } from "@/lib/calendar";
-
-type View = "day" | "week" | "month";
+import { PeriodView, periodRange, periodLabel } from "@/lib/period";
 
 export default function MealsPage() {
-  const [view, setView] = useState<View>("day");
-  const [selectedDate, setSelectedDate] = useState(todayStr());
-  const [cursor, setCursor] = useState(todayStr());
+  const [view, setView] = useState<PeriodView>("day");
+  const [anchor, setAnchor] = useState(todayStr());
 
-  // Visible range for the calendar grid (week/month only).
-  let rangeFrom = "";
-  let rangeTo = "";
-  if (view === "week") {
-    const w = weekDates(cursor);
-    rangeFrom = w[0];
-    rangeTo = w[6];
-  } else if (view === "month") {
-    const grid = monthMatrix(cursor);
-    rangeFrom = grid[0][0].date;
-    const lastWeek = grid[grid.length - 1];
-    rangeTo = lastWeek[lastWeek.length - 1].date;
-  }
-
-  const { meals: dayMeals, upsert, remove } = useMeals(selectedDate);
-  const { meals: rangeMeals } = useMealsRange(rangeFrom, rangeTo);
+  const range = useMemo(() => periodRange(view, anchor), [view, anchor]);
+  const { meals: rangeMeals } = useMealsRange(range.from, range.to);
+  const { upsert, remove } = useMeals(anchor);
   const {
     supplements,
     logs,
     upsert: upsertSupp,
     setStatus,
     clearStatus,
-  } = useSupplements(selectedDate);
+  } = useSupplements(anchor);
   const { toast } = useToast();
 
   const [formOpen, setFormOpen] = useState(false);
@@ -59,82 +42,140 @@ export default function MealsPage() {
   const [suppFormOpen, setSuppFormOpen] = useState(false);
   const [editingSupp, setEditingSupp] = useState<Supplement | null>(null);
 
+  // In day view the range is a single day, so rangeMeals IS that day's meals.
+  const dayMeals = rangeMeals;
+
+  const today = todayStr();
+  const todayInRange = today >= range.from && today <= range.to;
+  const formDefaultDate =
+    view === "day" ? anchor : todayInRange ? today : range.from;
+
+  const summary = useMemo(() => {
+    const dates = new Set<string>();
+    const sugarDates = new Set<string>();
+    let junk = 0;
+    let outside = 0;
+    for (const m of rangeMeals) {
+      dates.add(m.date);
+      if (m.processed_sugar) sugarDates.add(m.date);
+      if (m.health_rating === "junk") junk++;
+      if (m.source === "outside" || m.source === "packaged") outside++;
+    }
+    return {
+      total: rangeMeals.length,
+      daysLogged: dates.size,
+      sugarDays: sugarDates.size,
+      junk,
+      outside,
+    };
+  }, [rangeMeals]);
+
   return (
     <>
       <PageHeader title="Meals" />
 
       <div className="px-4 py-4 flex flex-col gap-4">
-        <div className="flex gap-2 self-center">
-          {(["day", "week", "month"] as View[]).map((v) => (
-            <Chip key={v} selected={view === v} onClick={() => setView(v)}>
-              {v.charAt(0).toUpperCase() + v.slice(1)}
-            </Chip>
-          ))}
-        </div>
-
-        {view === "day" ? (
-          <DateStepper date={selectedDate} onChange={setSelectedDate} />
-        ) : (
-          <Card>
-            <MealCalendar
-              view={view}
-              cursor={cursor}
-              selectedDate={selectedDate}
-              meals={rangeMeals}
-              onSelectDate={(d) => {
-                setSelectedDate(d);
-                setView("day");
-              }}
-              onChangeCursor={setCursor}
-            />
-          </Card>
-        )}
-
-        <Card>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-fg-muted text-sm">{groupLabel(selectedDate)}</span>
-            <span className="text-fg font-medium">
-              {dayMeals.length} meal{dayMeals.length !== 1 ? "s" : ""}
-            </span>
-          </div>
-          <MealMixBar meals={dayMeals} />
-        </Card>
-
-        <SupplementSection
-          date={selectedDate}
-          supplements={supplements}
-          logs={logs}
-          onSetStatus={(p) => setStatus.mutate(p)}
-          onClear={(p) => clearStatus.mutate(p)}
-          onEdit={(s) => {
-            setEditingSupp(s);
-            setSuppFormOpen(true);
-          }}
-          onAdd={() => {
-            setEditingSupp(null);
-            setSuppFormOpen(true);
-          }}
+        <PeriodBar
+          view={view}
+          anchor={anchor}
+          onViewChange={setView}
+          onAnchorChange={setAnchor}
         />
 
-        {dayMeals.length === 0 ? (
-          <EmptyState
-            emoji="🍽️"
-            message="No meals logged for this day. Tap + to add one."
-          />
-        ) : (
-          <Card className="p-0 overflow-hidden">
-            {dayMeals.map((meal) => (
-              <MealListItem
-                key={meal.id}
-                meal={meal}
-                onEdit={() => {
-                  setEditing(meal);
-                  setFormOpen(true);
-                }}
-                onDelete={() => setDeleting(meal.id)}
+        {view === "day" ? (
+          <>
+            <Card>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-fg-muted text-sm">
+                  {groupLabel(anchor)}
+                </span>
+                <span className="text-fg font-medium">
+                  {dayMeals.length} meal{dayMeals.length !== 1 ? "s" : ""}
+                </span>
+              </div>
+              <MealMixBar meals={dayMeals} />
+            </Card>
+
+            <SupplementSection
+              date={anchor}
+              supplements={supplements}
+              logs={logs}
+              onSetStatus={(p) => setStatus.mutate(p)}
+              onClear={(p) => clearStatus.mutate(p)}
+              onEdit={(s) => {
+                setEditingSupp(s);
+                setSuppFormOpen(true);
+              }}
+              onAdd={() => {
+                setEditingSupp(null);
+                setSuppFormOpen(true);
+              }}
+            />
+
+            {dayMeals.length === 0 ? (
+              <EmptyState
+                emoji="🍽️"
+                message="No meals logged for this day. Tap + to add one."
               />
-            ))}
-          </Card>
+            ) : (
+              <Card className="p-0 overflow-hidden">
+                {dayMeals.map((meal) => (
+                  <MealListItem
+                    key={meal.id}
+                    meal={meal}
+                    onEdit={() => {
+                      setEditing(meal);
+                      setFormOpen(true);
+                    }}
+                    onDelete={() => setDeleting(meal.id)}
+                  />
+                ))}
+              </Card>
+            )}
+          </>
+        ) : (
+          <>
+            <Card>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-fg-muted text-sm">
+                  {periodLabel(view, anchor)}
+                </span>
+                <span className="text-fg font-medium">
+                  {summary.total} meal{summary.total !== 1 ? "s" : ""}
+                </span>
+              </div>
+              <MealMixBar meals={rangeMeals} />
+              <div className="grid grid-cols-3 gap-2 mt-3 text-center">
+                <Stat label="Days logged" value={summary.daysLogged} />
+                <Stat label="Junk" value={summary.junk} tone="danger" />
+                <Stat label="Outside" value={summary.outside} tone="muted" />
+                <Stat label="Sugar days" value={summary.sugarDays} tone="amber" />
+                <Stat
+                  label="Avg / day"
+                  value={
+                    summary.daysLogged
+                      ? (summary.total / summary.daysLogged).toFixed(1)
+                      : "0"
+                  }
+                />
+              </div>
+            </Card>
+
+            <Card>
+              <MealCalendar
+                view={view}
+                anchor={anchor}
+                meals={rangeMeals}
+                onSelectDate={(d) => {
+                  setAnchor(d);
+                  setView("day");
+                }}
+              />
+              <p className="text-center text-xs text-fg-dim mt-2">
+                Tap a day to see its meals
+              </p>
+            </Card>
+          </>
         )}
       </div>
 
@@ -149,7 +190,7 @@ export default function MealsPage() {
         open={formOpen}
         onOpenChange={setFormOpen}
         initial={editing}
-        defaultDate={selectedDate}
+        defaultDate={formDefaultDate}
         onSave={(meal) => {
           upsert.mutate(meal, {
             onSuccess: () => toast(editing ? "Meal updated" : "Meal logged"),
@@ -184,5 +225,30 @@ export default function MealsPage() {
         }}
       />
     </>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: number | string;
+  tone?: "default" | "danger" | "amber" | "muted";
+}) {
+  const color =
+    tone === "danger"
+      ? "text-danger"
+      : tone === "amber"
+        ? "text-amber"
+        : tone === "muted"
+          ? "text-fg-muted"
+          : "text-fg";
+  return (
+    <div className="rounded-lg bg-elevated py-2">
+      <div className={`text-lg font-semibold ${color}`}>{value}</div>
+      <div className="text-[10px] text-fg-dim">{label}</div>
+    </div>
   );
 }

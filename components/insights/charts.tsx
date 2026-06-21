@@ -1,0 +1,309 @@
+"use client";
+
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ReferenceLine,
+  CartesianGrid,
+} from "recharts";
+import { Card } from "@/components/ui/card";
+import { Meal, SleepLog, StudySession, BodyCheckin } from "@/lib/supabase/types";
+import { CHART, tooltipStyle, tickInterval, Bucket, bucketOf } from "@/lib/chart";
+
+const AXIS = { stroke: CHART.axis, fontSize: 10, tickLine: false, axisLine: false };
+const H = 180;
+
+export function ChartCard({
+  title,
+  stat,
+  children,
+}: {
+  title: string;
+  stat?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-sm font-medium text-fg">{title}</span>
+        {stat && <span className="text-xs text-fg-muted">{stat}</span>}
+      </div>
+      {children}
+    </Card>
+  );
+}
+
+function EmptyChart({ message }: { message: string }) {
+  return (
+    <div className="h-[120px] flex items-center justify-center text-xs text-fg-dim">
+      {message}
+    </div>
+  );
+}
+
+function Legend({ items }: { items: { label: string; color: string }[] }) {
+  return (
+    <div className="flex items-center justify-center gap-3 mt-2 text-[10px] text-fg-dim">
+      {items.map((i) => (
+        <span key={i.label} className="flex items-center gap-1">
+          <span
+            className="w-2 h-2 rounded-full"
+            style={{ backgroundColor: i.color }}
+          />
+          {i.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ===================== MEALS =====================
+export function MealsChart({
+  meals,
+  buckets,
+}: {
+  meals: Meal[];
+  buckets: Bucket[];
+}) {
+  const data = buckets.map((b) => ({ label: b.label, healthy: 0, okay: 0, junk: 0 }));
+  let healthy = 0,
+    junk = 0,
+    sugar = 0;
+  for (const m of meals) {
+    const i = bucketOf(buckets, m.date);
+    if (i < 0) continue;
+    if (m.health_rating === "healthy") {
+      data[i].healthy++;
+      healthy++;
+    } else if (m.health_rating === "okay") data[i].okay++;
+    else if (m.health_rating === "junk") {
+      data[i].junk++;
+      junk++;
+    }
+    if (m.processed_sugar) sugar++;
+  }
+  const pct = meals.length ? Math.round((healthy / meals.length) * 100) : 0;
+
+  return (
+    <ChartCard
+      title="Meals"
+      stat={
+        meals.length
+          ? `${meals.length} logged · ${pct}% healthy · ${junk} junk · ${sugar} w/ sugar`
+          : undefined
+      }
+    >
+      {meals.length === 0 ? (
+        <EmptyChart message="No meals logged in this range." />
+      ) : (
+        <>
+          <ResponsiveContainer width="100%" height={H}>
+            <BarChart data={data} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+              <CartesianGrid stroke={CHART.grid} vertical={false} />
+              <XAxis
+                dataKey="label"
+                {...AXIS}
+                interval={tickInterval(data.length)}
+              />
+              <YAxis {...AXIS} allowDecimals={false} width={28} />
+              <Tooltip contentStyle={tooltipStyle} cursor={{ fill: CHART.grid }} />
+              <Bar dataKey="healthy" stackId="a" fill={CHART.success} radius={[0, 0, 0, 0]} />
+              <Bar dataKey="okay" stackId="a" fill={CHART.amber} />
+              <Bar dataKey="junk" stackId="a" fill={CHART.danger} radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+          <Legend
+            items={[
+              { label: "Healthy", color: CHART.success },
+              { label: "Okay", color: CHART.amber },
+              { label: "Junk", color: CHART.danger },
+            ]}
+          />
+        </>
+      )}
+    </ChartCard>
+  );
+}
+
+// ===================== SLEEP =====================
+export function SleepChart({
+  sleep,
+  buckets,
+}: {
+  sleep: SleepLog[];
+  buckets: Bucket[];
+}) {
+  const acc = buckets.map(() => ({ sum: 0, n: 0 }));
+  const hoursList: number[] = [];
+  for (const s of sleep) {
+    if (s.hours == null) continue;
+    const i = bucketOf(buckets, s.date);
+    if (i < 0) continue;
+    acc[i].sum += s.hours;
+    acc[i].n++;
+    hoursList.push(s.hours);
+  }
+  const data = buckets.map((b, i) => ({
+    label: b.label,
+    hours: acc[i].n ? +(acc[i].sum / acc[i].n).toFixed(1) : 0,
+  }));
+  const avg = hoursList.length
+    ? +(hoursList.reduce((a, c) => a + c, 0) / hoursList.length).toFixed(1)
+    : 0;
+
+  return (
+    <ChartCard
+      title="Sleep"
+      stat={hoursList.length ? `avg ${avg}h · ${hoursList.length} nights` : undefined}
+    >
+      {hoursList.length === 0 ? (
+        <EmptyChart message="No sleep logged in this range." />
+      ) : (
+        <ResponsiveContainer width="100%" height={H}>
+          <BarChart data={data} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+            <CartesianGrid stroke={CHART.grid} vertical={false} />
+            <XAxis dataKey="label" {...AXIS} interval={tickInterval(data.length)} />
+            <YAxis {...AXIS} width={28} domain={[0, "dataMax + 1"]} />
+            <Tooltip contentStyle={tooltipStyle} cursor={{ fill: CHART.grid }} />
+            <ReferenceLine y={avg} stroke={CHART.accent2} strokeDasharray="3 3" />
+            <Bar dataKey="hours" fill={CHART.accent2} radius={[3, 3, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </ChartCard>
+  );
+}
+
+// ===================== STUDY =====================
+export function StudyChart({
+  sessions,
+  buckets,
+}: {
+  sessions: StudySession[];
+  buckets: Bucket[];
+}) {
+  const data = buckets.map((b) => ({ label: b.label, study: 0, recall: 0 }));
+  let study = 0,
+    recall = 0;
+  for (const s of sessions) {
+    const i = bucketOf(buckets, s.date);
+    if (i < 0) continue;
+    if (s.kind === "recall") {
+      data[i].recall += s.duration_min;
+      recall += s.duration_min;
+    } else {
+      data[i].study += s.duration_min;
+      study += s.duration_min;
+    }
+  }
+  const total = study + recall;
+  const fmt = (m: number) => (m >= 60 ? `${(m / 60).toFixed(1)}h` : `${m}m`);
+
+  return (
+    <ChartCard
+      title="Study"
+      stat={
+        total ? `${fmt(study)} study · ${fmt(recall)} recall` : undefined
+      }
+    >
+      {total === 0 ? (
+        <EmptyChart message="No study sessions in this range." />
+      ) : (
+        <>
+          <ResponsiveContainer width="100%" height={H}>
+            <BarChart data={data} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+              <CartesianGrid stroke={CHART.grid} vertical={false} />
+              <XAxis dataKey="label" {...AXIS} interval={tickInterval(data.length)} />
+              <YAxis {...AXIS} width={28} />
+              <Tooltip contentStyle={tooltipStyle} cursor={{ fill: CHART.grid }} />
+              <Bar dataKey="study" stackId="a" fill={CHART.violet} />
+              <Bar dataKey="recall" stackId="a" fill={CHART.brand} radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+          <Legend
+            items={[
+              { label: "Study (min)", color: CHART.violet },
+              { label: "Recall (min)", color: CHART.brand },
+            ]}
+          />
+        </>
+      )}
+    </ChartCard>
+  );
+}
+
+// ===================== BODY =====================
+export function BodyChart({
+  body,
+  buckets,
+}: {
+  body: BodyCheckin[];
+  buckets: Bucket[];
+}) {
+  const wAcc = buckets.map(() => ({ sum: 0, n: 0 }));
+  let eSum = 0,
+    eN = 0,
+    mSum = 0,
+    mN = 0;
+  for (const c of body) {
+    const i = bucketOf(buckets, c.date);
+    if (i < 0) continue;
+    if (c.weight_kg != null) {
+      wAcc[i].sum += c.weight_kg;
+      wAcc[i].n++;
+    }
+    if (c.energy != null) {
+      eSum += c.energy;
+      eN++;
+    }
+    if (c.mood != null) {
+      mSum += c.mood;
+      mN++;
+    }
+  }
+  const data = buckets.map((b, i) => ({
+    label: b.label,
+    weight: wAcc[i].n ? +(wAcc[i].sum / wAcc[i].n).toFixed(1) : null,
+  }));
+  const hasWeight = data.some((d) => d.weight != null);
+  const avgE = eN ? (eSum / eN).toFixed(1) : "–";
+  const avgM = mN ? (mSum / mN).toFixed(1) : "–";
+
+  return (
+    <ChartCard
+      title="Body"
+      stat={
+        body.length ? `energy ${avgE}/5 · mood ${avgM}/5` : undefined
+      }
+    >
+      {body.length === 0 ? (
+        <EmptyChart message="No body check-ins in this range." />
+      ) : hasWeight ? (
+        <ResponsiveContainer width="100%" height={H}>
+          <LineChart data={data} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+            <CartesianGrid stroke={CHART.grid} vertical={false} />
+            <XAxis dataKey="label" {...AXIS} interval={tickInterval(data.length)} />
+            <YAxis {...AXIS} width={32} domain={["dataMin - 1", "dataMax + 1"]} />
+            <Tooltip contentStyle={tooltipStyle} />
+            <Line
+              type="monotone"
+              dataKey="weight"
+              stroke={CHART.brand}
+              strokeWidth={2}
+              dot={{ r: 2 }}
+              connectNulls
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      ) : (
+        <EmptyChart message="No weight logged — energy & mood shown above." />
+      )}
+    </ChartCard>
+  );
+}
