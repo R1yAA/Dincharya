@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
 import { useSleep } from "@/hooks/use-sleep";
 import { useHair } from "@/hooks/use-hair";
-import { useRecall } from "@/hooks/use-recall";
+import { useStudyRecall } from "@/hooks/use-recall";
 import { useMemo } from "react";
 
 const LINKS = [
@@ -20,7 +20,7 @@ const LINKS = [
 export default function MorePage() {
   const { logs: sleepLogs } = useSleep();
   const { logs: hairLogs } = useHair();
-  const { dueCount } = useRecall();
+  const { dueCount } = useStudyRecall();
 
   const sleepAvg = useMemo(() => {
     const recent = sleepLogs.slice(0, 7);

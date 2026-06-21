@@ -13,14 +13,14 @@ import { SleepForm } from "@/components/sleep/sleep-form";
 import { BodyCheckinForm } from "@/components/body/body-checkin-form";
 import { CycleDayForm } from "@/components/cycle/cycle-day-form";
 import { HairForm } from "@/components/hair/hair-form";
-import { StudyForm } from "@/components/study/study-form";
+import { StudyLogForm, StudyLogData } from "@/components/study/study-log-form";
 import { useMeals } from "@/hooks/use-meals";
 import { useBody } from "@/hooks/use-body";
 import { useSleep } from "@/hooks/use-sleep";
 import { useCycle } from "@/hooks/use-cycle";
 import { useHair } from "@/hooks/use-hair";
-import { useStudy } from "@/hooks/use-study";
-import { useRecall } from "@/hooks/use-recall";
+import { useStudyTopics, useStudyTasks, useStudySessions } from "@/hooks/use-study";
+import { useStudyRecall } from "@/hooks/use-recall";
 import { useSettings } from "@/hooks/use-settings";
 import { useToast } from "@/components/ui/toast";
 import { MEAL_SOURCES } from "@/lib/categories/meals";
@@ -37,9 +37,35 @@ export default function TodayPage() {
   const { logs: sleepLogs, upsert: upsertSleep } = useSleep(date);
   const { days: cycleDays, upsert: upsertCycle, remove: removeCycle } = useCycle();
   const { logs: hairLogs, upsert: upsertHair } = useHair(date);
-  const { logs: studyLogs, upsert: upsertStudy, subjects } = useStudy(date);
-  const { dueCount, completionPct, todayReviewed, createReminders } = useRecall();
+  const { topics, ensure: ensureTopic } = useStudyTopics();
+  const { tasks, upsert: upsertTask } = useStudyTasks();
+  const { sessions: studySessions, add: addSession } = useStudySessions(date, date);
+  const { dueCount } = useStudyRecall();
   const { settings } = useSettings();
+
+  const studyMinToday = studySessions.reduce((s, x) => s + x.duration_min, 0);
+
+  const handleStudyLog = async (d: StudyLogData) => {
+    let taskId = d.existingTaskId;
+    if (!taskId) {
+      const topic = await ensureTopic.mutateAsync(d.topicName);
+      const task = await upsertTask.mutateAsync({
+        topic_id: topic.id,
+        title: d.taskTitle,
+        estimate_blocks: d.estimate_blocks,
+        recall_enabled: d.recall_enabled,
+      });
+      taskId = task.id;
+    }
+    await addSession.mutateAsync({
+      task_id: taskId,
+      duration_min: d.minutes,
+      date: d.date,
+      note: d.note,
+      kind: "study",
+    });
+    toast("Study session logged");
+  };
   const { toast } = useToast();
 
   const [sheet, setSheet] = useState<QuickSheet>(null);
@@ -187,36 +213,28 @@ export default function TodayPage() {
           </Card>
         )}
 
-        {/* Study reviews due */}
-        {(studyLogs.length > 0 || dueCount > 0) && (
+        {/* Study */}
+        {(studyMinToday > 0 || dueCount > 0) && (
           <Card>
-            <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center justify-between">
               <span className="text-sm text-fg-muted flex items-center gap-1.5">
                 <BookOpen size={14} className="text-violet" /> Study
               </span>
               <div className="flex items-center gap-3">
-                {studyLogs.length > 0 && (
-                  <span className="text-xs text-fg-dim">
-                    {studyLogs.length} session{studyLogs.length !== 1 ? "s" : ""}
-                  </span>
+                {studyMinToday > 0 && (
+                  <span className="text-xs text-fg-dim">{studyMinToday} min</span>
                 )}
                 {dueCount > 0 ? (
                   <Link href="/study" className="text-sm text-brand">
                     {dueCount} to review →
                   </Link>
-                ) : todayReviewed > 0 ? (
-                  <span className="text-xs text-success">All done ✓</span>
-                ) : null}
+                ) : (
+                  <Link href="/study" className="text-xs text-fg-dim">
+                    open →
+                  </Link>
+                )}
               </div>
             </div>
-            {completionPct !== null && (
-              <div className="h-1 rounded-full bg-elevated overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all ${completionPct === 100 ? "bg-success" : "bg-brand"}`}
-                  style={{ width: `${completionPct}%` }}
-                />
-              </div>
-            )}
           </Card>
         )}
 
@@ -308,27 +326,13 @@ export default function TodayPage() {
           upsertHair.mutate(data, { onSuccess: () => toast("Hair check-in saved") });
         }}
       />
-      <StudyForm
+      <StudyLogForm
         open={sheet === "study"}
         onOpenChange={(o) => !o && setSheet(null)}
-        initial={null}
-        subjects={subjects}
-        onSave={(data) => {
-          upsertStudy.mutate(data, {
-            onSuccess: (result) => {
-              toast("Study session logged");
-              if (result) {
-                const saved = result as import("@/lib/supabase/types").StudyLog;
-                createReminders.mutate({
-                  study_log_id: saved.id,
-                  subject: saved.subject,
-                  topic: saved.topic,
-                  studyDate: saved.date,
-                });
-              }
-            },
-          });
-        }}
+        topics={topics}
+        tasks={tasks}
+        defaultDate={date}
+        onSave={handleStudyLog}
       />
     </>
   );

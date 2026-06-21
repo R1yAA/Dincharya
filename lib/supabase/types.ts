@@ -107,6 +107,63 @@ export interface HairLog {
   updated_at: string;
 }
 
+// ===== Study: three-level model (Topic -> Task -> Session) + task-level recall =====
+
+export interface StudyTopic {
+  id: string;
+  workspace: string;
+  name: string;
+  color: string | null;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type StudyTaskStatus = "todo" | "done";
+
+export interface StudyTask {
+  id: string;
+  workspace: string;
+  topic_id: string;
+  title: string;
+  /** estimate in 50-minute focus blocks */
+  estimate_blocks: number;
+  status: StudyTaskStatus;
+  recall_enabled: boolean;
+  done_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type StudySessionKind = "study" | "recall";
+
+export interface StudySession {
+  id: string;
+  workspace: string;
+  task_id: string;
+  date: string;
+  duration_min: number;
+  kind: StudySessionKind;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StudyRecall {
+  id: string;
+  workspace: string;
+  task_id: string;
+  /** index into the spaced sequence — the upcoming review */
+  step: number;
+  interval_days: number;
+  due_date: string;
+  last_completed: string | null;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** @deprecated legacy flat study model — replaced by StudyTopic/StudyTask/StudySession. */
 export interface StudyLog {
   id: string;
   workspace: string;
@@ -120,6 +177,7 @@ export interface StudyLog {
   updated_at: string;
 }
 
+/** @deprecated legacy SM-2 flashcard recall — replaced by StudyRecall. */
 export interface RecallItem {
   id: string;
   workspace: string;

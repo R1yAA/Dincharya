@@ -2,129 +2,143 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase/client";
-import { RecallItem } from "@/lib/supabase/types";
+import { StudyRecall, StudyTask } from "@/lib/supabase/types";
 import { useWorkspace } from "@/components/workspace/workspace-provider";
-import { generateReviewDates } from "@/lib/recall";
+import { initialRecall, advanceRecall, deferRecall } from "@/lib/study";
 import { todayStr } from "@/lib/format";
 
-export function useRecall(forDate?: string) {
+/**
+ * Task-level recall with recompute-from-actual scheduling. One advancing row per
+ * recall-flagged task (no frozen 7-row pile). Also owns task completion, since
+ * completing a flagged task is what spawns its recall schedule.
+ */
+export function useStudyRecall() {
   const { workspace } = useWorkspace();
   const qc = useQueryClient();
-  const targetDate = forDate || todayStr();
+  const today = todayStr();
 
-  const todayQuery = useQuery({
-    queryKey: ["recall-today", workspace, targetDate],
+  const query = useQuery({
+    queryKey: ["study-recall", workspace],
     queryFn: async () => {
       const { data } = await supabase
-        .from("recall_items")
+        .from("study_recall")
         .select("*")
         .eq("workspace", workspace!)
-        .eq("is_active", true)
-        .lte("due_date", targetDate)
-        .order("last_reviewed", { ascending: true, nullsFirst: true })
-        .order("subject", { ascending: true });
-      return (data || []) as RecallItem[];
-    },
-    enabled: !!workspace,
-  });
-
-  const allQuery = useQuery({
-    queryKey: ["recall", workspace],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("recall_items")
-        .select("*")
-        .eq("workspace", workspace!)
-        .eq("is_active", true)
+        .eq("active", true)
         .order("due_date", { ascending: true });
-      return (data || []) as RecallItem[];
+      return (data || []) as StudyRecall[];
     },
     enabled: !!workspace,
   });
 
-  const forDateQuery = useQuery({
-    queryKey: ["recall-date", workspace, forDate],
-    queryFn: async () => {
-      if (!forDate) return [];
-      const { data } = await supabase
-        .from("recall_items")
-        .select("*")
-        .eq("workspace", workspace!)
-        .eq("is_active", true)
-        .eq("due_date", forDate)
-        .order("subject", { ascending: true });
-      return (data || []) as RecallItem[];
-    },
-    enabled: !!workspace && !!forDate,
-  });
-
-  const invalidateAll = () => {
-    qc.invalidateQueries({ queryKey: ["recall"] });
-    qc.invalidateQueries({ queryKey: ["recall-today"] });
-    qc.invalidateQueries({ queryKey: ["recall-date"] });
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["study-recall"] });
+    qc.invalidateQueries({ queryKey: ["study-tasks"] });
+    qc.invalidateQueries({ queryKey: ["study-sessions"] });
   };
 
-  const createReminders = useMutation({
-    mutationFn: async (params: {
-      study_log_id: string;
-      subject: string;
-      topic: string | null;
-      studyDate: string;
+  // Mark a task done; if flagged for recall, spawn (or reset) its first review.
+  const completeTask = useMutation({
+    mutationFn: async (task: StudyTask) => {
+      await supabase
+        .from("study_tasks")
+        .update({ status: "done", done_at: today })
+        .eq("id", task.id);
+      if (task.recall_enabled) {
+        const r = initialRecall(today);
+        await supabase.from("study_recall").upsert(
+          {
+            workspace: workspace!,
+            task_id: task.id,
+            step: r.step,
+            interval_days: r.interval_days,
+            due_date: r.due_date,
+            last_completed: r.last_completed,
+            active: r.active,
+          },
+          { onConflict: "task_id" }
+        );
+      }
+    },
+    onSuccess: invalidate,
+  });
+
+  // Reopen a done task and tear down any recall schedule it had.
+  const reopenTask = useMutation({
+    mutationFn: async (task: StudyTask) => {
+      await supabase
+        .from("study_tasks")
+        .update({ status: "todo", done_at: null })
+        .eq("id", task.id);
+      await supabase.from("study_recall").delete().eq("task_id", task.id);
+    },
+    onSuccess: invalidate,
+  });
+
+  // Complete a due review: advance the schedule from today and log recall time.
+  const completeReview = useMutation({
+    mutationFn: async ({
+      recall,
+      minutes,
+    }: {
+      recall: StudyRecall;
+      minutes: number;
     }) => {
-      const reviews = generateReviewDates(params.studyDate);
-      const rows = reviews.map((r) => ({
-        workspace: workspace!,
-        study_log_id: params.study_log_id,
-        subject: params.subject,
-        prompt: params.topic || params.subject,
-        answer: "",
-        interval_days: r.interval_days,
-        due_date: r.due_date,
-        is_active: true,
-      }));
-      await supabase.from("recall_items").insert(rows);
-    },
-    onSuccess: invalidateAll,
-  });
-
-  const markReviewed = useMutation({
-    mutationFn: async (id: string) => {
+      const next = advanceRecall(recall, today);
       await supabase
-        .from("recall_items")
-        .update({ last_reviewed: todayStr() })
-        .eq("id", id);
+        .from("study_recall")
+        .update({
+          step: next.step,
+          interval_days: next.interval_days,
+          due_date: next.due_date,
+          last_completed: next.last_completed,
+          active: next.active,
+        })
+        .eq("id", recall.id);
+      if (minutes > 0) {
+        await supabase.from("study_sessions").insert({
+          workspace: workspace!,
+          task_id: recall.task_id,
+          date: today,
+          duration_min: minutes,
+          kind: "recall",
+        });
+      }
     },
-    onSuccess: invalidateAll,
+    onSuccess: invalidate,
   });
 
-  const unmarkReviewed = useMutation({
-    mutationFn: async (id: string) => {
+  // Push a due/overdue review forward without advancing the step.
+  const deferReview = useMutation({
+    mutationFn: async ({
+      recall,
+      days,
+    }: {
+      recall: StudyRecall;
+      days: number;
+    }) => {
+      const { due_date } = deferRecall(days, today);
       await supabase
-        .from("recall_items")
-        .update({ last_reviewed: null })
-        .eq("id", id);
+        .from("study_recall")
+        .update({ due_date })
+        .eq("id", recall.id);
     },
-    onSuccess: invalidateAll,
+    onSuccess: invalidate,
   });
 
-  const todayItems = todayQuery.data || [];
-  const allItems = allQuery.data || [];
-  const dueCount = todayItems.filter((i) => !i.last_reviewed).length;
-  const todayReviewed = todayItems.filter((i) => i.last_reviewed === todayStr()).length;
-  const todayTotal = todayItems.length;
-  const completionPct = todayTotal > 0 ? Math.round((todayReviewed / todayTotal) * 100) : null;
+  const items = query.data || [];
+  const dueItems = items.filter((r) => r.due_date <= today);
+  const upcomingItems = items.filter((r) => r.due_date > today);
 
   return {
-    items: allItems,
-    todayItems,
-    dateItems: forDateQuery.data || [],
-    dueCount,
-    todayReviewed,
-    todayTotal,
-    completionPct,
-    isLoading: todayQuery.isLoading,
-    createReminders,
-    markReviewed,
-    unmarkReviewed,
+    items,
+    dueItems,
+    upcomingItems,
+    dueCount: dueItems.length,
+    isLoading: query.isLoading,
+    completeTask,
+    reopenTask,
+    completeReview,
+    deferReview,
   };
 }

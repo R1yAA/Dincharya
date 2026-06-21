@@ -50,17 +50,17 @@ export function hairCsv(items: { date: string; washed: boolean; shedding: number
   );
 }
 
-export function studyCsv(items: { date: string; subject: string; topic: string | null; duration_min: number | null; confidence: number | null; note: string | null }[]): string {
+export function studySessionsCsv(items: { date: string; topic: string; task: string; kind: string; duration_min: number; note: string | null }[]): string {
   return buildCsv(
-    ["Date", "Subject", "Topic", "Duration (min)", "Confidence", "Note"],
-    items.map((s) => [s.date, s.subject, s.topic, s.duration_min, s.confidence, s.note])
+    ["Date", "Topic", "Task", "Kind", "Duration (min)", "Note"],
+    items.map((s) => [s.date, s.topic, s.task, s.kind, s.duration_min, s.note])
   );
 }
 
-export function recallCsv(items: { subject: string | null; prompt: string; answer: string; due_date: string; interval_days: number; repetitions: number; ease: number; last_reviewed: string | null }[]): string {
+export function studyRecallCsv(items: { topic: string; task: string; step: number; due_date: string; last_completed: string | null; active: boolean }[]): string {
   return buildCsv(
-    ["Subject", "Prompt", "Answer", "Due Date", "Interval (days)", "Repetitions", "Ease", "Last Reviewed"],
-    items.map((r) => [r.subject, r.prompt, r.answer, r.due_date, r.interval_days, r.repetitions, r.ease, r.last_reviewed])
+    ["Topic", "Task", "Step", "Due Date", "Last Completed", "Active"],
+    items.map((r) => [r.topic, r.task, r.step, r.due_date, r.last_completed, r.active])
   );
 }
 

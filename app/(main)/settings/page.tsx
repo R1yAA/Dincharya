@@ -14,8 +14,8 @@ import { useBody } from "@/hooks/use-body";
 import { useSleep } from "@/hooks/use-sleep";
 import { useCycle } from "@/hooks/use-cycle";
 import { useHair } from "@/hooks/use-hair";
-import { useStudy } from "@/hooks/use-study";
-import { useRecall } from "@/hooks/use-recall";
+import { useStudyTopics, useStudyTasks, useStudySessions } from "@/hooks/use-study";
+import { useStudyRecall } from "@/hooks/use-recall";
 import * as csv from "@/lib/csv";
 
 const MODULES = [
@@ -37,8 +37,10 @@ export default function SettingsPage() {
   const { logs: sleepLogs } = useSleep();
   const { days: cycleDays } = useCycle();
   const { logs: hairLogs } = useHair();
-  const { logs: studyLogs } = useStudy();
-  const { items: recallItems } = useRecall();
+  const { topics: studyTopics } = useStudyTopics();
+  const { tasks: studyTasks } = useStudyTasks();
+  const { sessions: studySessions } = useStudySessions();
+  const { items: recallItems } = useStudyRecall();
 
   const [name, setName] = useState(settings?.user_name || "");
   const [cycleLen, setCycleLen] = useState(settings?.default_cycle_len?.toString() || "28");
@@ -47,13 +49,37 @@ export default function SettingsPage() {
   const [clearConfirm, setClearConfirm] = useState("");
 
   const handleExport = () => {
+    const topicById = new Map(studyTopics.map((t) => [t.id, t.name]));
+    const taskById = new Map(studyTasks.map((t) => [t.id, t]));
+    const sessionRows = studySessions.map((s) => {
+      const task = taskById.get(s.task_id);
+      return {
+        date: s.date,
+        topic: task ? topicById.get(task.topic_id) ?? "" : "",
+        task: task?.title ?? "",
+        kind: s.kind,
+        duration_min: s.duration_min,
+        note: s.note,
+      };
+    });
+    const recallRows = recallItems.map((r) => {
+      const task = taskById.get(r.task_id);
+      return {
+        topic: task ? topicById.get(task.topic_id) ?? "" : "",
+        task: task?.title ?? "",
+        step: r.step,
+        due_date: r.due_date,
+        last_completed: r.last_completed,
+        active: r.active,
+      };
+    });
     csv.downloadCsv(csv.mealsCsv(meals), "dincharya-meals.csv");
     csv.downloadCsv(csv.bodyCsv(checkins), "dincharya-body.csv");
     csv.downloadCsv(csv.sleepCsv(sleepLogs), "dincharya-sleep.csv");
     csv.downloadCsv(csv.cycleCsv(cycleDays), "dincharya-cycle.csv");
     csv.downloadCsv(csv.hairCsv(hairLogs), "dincharya-hair.csv");
-    csv.downloadCsv(csv.studyCsv(studyLogs), "dincharya-study.csv");
-    csv.downloadCsv(csv.recallCsv(recallItems), "dincharya-recall.csv");
+    csv.downloadCsv(csv.studySessionsCsv(sessionRows), "dincharya-study.csv");
+    csv.downloadCsv(csv.studyRecallCsv(recallRows), "dincharya-recall.csv");
     toast("All CSVs downloaded");
   };
 

@@ -1,4 +1,4 @@
-import { Meal, BodyCheckin, SleepLog, CycleDay, HairLog, StudyLog, RecallItem } from "./supabase/types";
+import { Meal, BodyCheckin, SleepLog, CycleDay, HairLog, StudySession, StudyRecall } from "./supabase/types";
 import { deriveCycles, getPhaseForDay } from "./cycle";
 import { daysBetween } from "./format";
 
@@ -16,8 +16,8 @@ interface InsightData {
   sleep: SleepLog[];
   cycle: CycleDay[];
   hair: HairLog[];
-  study: StudyLog[];
-  recall: RecallItem[];
+  study: StudySession[];
+  recall: StudyRecall[];
   defaults: { cycleLen: number; periodLen: number };
   today: string;
 }
@@ -207,15 +207,20 @@ export function buildInsights(data: InsightData): InsightCard[] {
     }
   }
 
-  // 7. Study × sleep
-  if (data.study.length >= 5 && data.sleep.length >= 5) {
+  // 7. Study time × sleep
+  const studySessions = data.study.filter(s => s.kind === "study");
+  if (studySessions.length >= 5 && data.sleep.length >= 5) {
+    const minByDate = new Map<string, number>();
+    for (const s of studySessions) {
+      minByDate.set(s.date, (minByDate.get(s.date) || 0) + s.duration_min);
+    }
     const sleepByDate = new Map(data.sleep.map(s => [s.date, s]));
     const xs: number[] = [], ys: number[] = [];
-    for (const st of data.study) {
-      const s = sleepByDate.get(st.date);
-      if (s?.hours && st.confidence) {
+    for (const [date, min] of minByDate) {
+      const s = sleepByDate.get(date);
+      if (s?.hours) {
         xs.push(s.hours);
-        ys.push(st.confidence);
+        ys.push(min);
       }
     }
     if (xs.length >= 5) {
@@ -224,53 +229,39 @@ export function buildInsights(data: InsightData): InsightCard[] {
         id: "study-sleep",
         strength: strengthFromR(r),
         emoji: "📚",
-        title: "Study confidence × sleep",
-        detail: `Sleep hours and study confidence correlate at r≈${r.toFixed(2)} (n=${xs.length}).`,
+        title: "Study time × sleep",
+        detail: `Sleep hours and daily study minutes correlate at r≈${r.toFixed(2)} (n=${xs.length}).`,
       });
     }
   }
 
-  // 8. Active review discipline
-  const activeRecall = data.recall.filter(r => r.is_active);
-  if (activeRecall.length >= 5) {
-    const reviewed = activeRecall.filter(r => r.last_reviewed);
-    const totalDue = activeRecall.filter(r => r.due_date <= data.today).length;
-    const completedDue = activeRecall.filter(r => r.due_date <= data.today && r.last_reviewed).length;
-    const completionRate = totalDue > 0 ? completedDue / totalDue : 0;
-
-    // Daily completion trend: group by last_reviewed date
-    const dailyMap = new Map<string, { done: number; due: number }>();
-    for (const item of activeRecall) {
-      if (item.due_date <= data.today) {
-        const bucket = item.last_reviewed || item.due_date;
-        const entry = dailyMap.get(bucket) || { done: 0, due: 0 };
-        entry.due++;
-        if (item.last_reviewed) entry.done++;
-        dailyMap.set(bucket, entry);
-      }
-    }
-    const daysWithReviews = [...dailyMap.entries()].filter(([, v]) => v.done > 0).length;
-
+  // 8. Recall load (one advancing row per recall-flagged task; only active ones here)
+  const activeRecall = data.recall;
+  if (activeRecall.length >= 3) {
+    const due = activeRecall.filter(r => r.due_date <= data.today).length;
     cards.push({
-      id: "review-discipline",
-      strength: completionRate > 0.8 ? "strong" : completionRate > 0.5 ? "medium" : "weak",
+      id: "recall-load",
+      strength: due === 0 ? "strong" : due <= 3 ? "medium" : "weak",
       emoji: "🧠",
-      title: "Review discipline",
-      detail: `${Math.round(completionRate * 100)}% of due reviews completed (${completedDue}/${totalDue}). Active review days: ${daysWithReviews}.`,
+      title: "Recall load",
+      detail:
+        due === 0
+          ? `${activeRecall.length} recall items scheduled, none overdue. On top of it.`
+          : `${due} of ${activeRecall.length} scheduled recall items due now.`,
     });
   }
 
   // 8b. Study consistency
-  if (data.study.length >= 5) {
-    const studyDates = new Set(data.study.map(s => s.date));
-    const totalMins = data.study.reduce((s, l) => s + (l.duration_min || 0), 0);
-    const avgPerSession = Math.round(totalMins / data.study.length);
+  if (studySessions.length >= 5) {
+    const studyDates = new Set(studySessions.map(s => s.date));
+    const totalMins = studySessions.reduce((s, l) => s + l.duration_min, 0);
+    const avgPerSession = Math.round(totalMins / studySessions.length);
     cards.push({
       id: "study-consistency",
       strength: studyDates.size > 14 ? "strong" : studyDates.size > 5 ? "medium" : "weak",
       emoji: "📖",
       title: "Study consistency",
-      detail: `${data.study.length} sessions across ${studyDates.size} days. Avg ${avgPerSession} min/session.`,
+      detail: `${studySessions.length} sessions across ${studyDates.size} days. Avg ${avgPerSession} min/session.`,
     });
   }
 

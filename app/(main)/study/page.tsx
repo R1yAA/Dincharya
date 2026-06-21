@@ -1,332 +1,454 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Check, Circle, Trash2 } from "lucide-react";
+import {
+  Check,
+  RotateCcw,
+  Trash2,
+  Pencil,
+  Clock,
+  Brain,
+  Plus,
+} from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Fab } from "@/components/layout/fab";
 import { Card } from "@/components/ui/card";
 import { Chip } from "@/components/ui/chip";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { RatingDisplay } from "@/components/ui/rating-dots";
-import { StudyForm } from "@/components/study/study-form";
-import { ReviewCalendar } from "@/components/study/review-calendar";
-import { useStudy } from "@/hooks/use-study";
-import { useRecall } from "@/hooks/use-recall";
+import { TaskForm, TaskFormData } from "@/components/study/task-form";
+import { SessionForm, SessionFormData } from "@/components/study/session-form";
+import { StudyStats } from "@/components/study/study-stats";
+import { useStudyTopics, useStudyTasks, useStudySessions } from "@/hooks/use-study";
+import { useStudyRecall } from "@/hooks/use-recall";
 import { useToast } from "@/components/ui/toast";
-import { StudyLog, RecallItem } from "@/lib/supabase/types";
-import { groupLabel, formatDate, todayStr } from "@/lib/format";
+import { StudyTask, StudyRecall } from "@/lib/supabase/types";
+import { BLOCK_MIN, reviewLabel } from "@/lib/study";
+import { todayStr, daysBetween } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-type View = "log" | "review" | "calendar";
+type View = "tasks" | "review" | "stats";
 
 export default function StudyPage() {
-  const [view, setView] = useState<View>("log");
-  const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<StudyLog | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
-  const [calDate, setCalDate] = useState<string | null>(null);
+  const [view, setView] = useState<View>("tasks");
 
-  const { logs, upsert, remove, subjects } = useStudy();
+  const { topics, ensure: ensureTopic } = useStudyTopics();
+  const { tasks, upsert: upsertTask, remove: removeTask } = useStudyTasks();
+  const { sessions, add: addSession } = useStudySessions();
   const {
-    todayItems,
+    dueItems,
+    upcomingItems,
     dueCount,
-    todayReviewed,
-    todayTotal,
-    completionPct,
-    createReminders,
-    markReviewed,
-    unmarkReviewed,
-  } = useRecall();
-  const calRecall = useRecall(calDate || undefined);
+    completeTask,
+    reopenTask,
+    completeReview,
+    deferReview,
+  } = useStudyRecall();
   const { toast } = useToast();
 
-  const grouped = logs.reduce<Record<string, StudyLog[]>>((acc, l) => {
-    (acc[l.date] ||= []).push(l);
-    return acc;
-  }, {});
+  const [taskFormOpen, setTaskFormOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<StudyTask | null>(null);
+  const [sessionTask, setSessionTask] = useState<StudyTask | null>(null);
+  const [reviewing, setReviewing] = useState<StudyRecall | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
-  const reviewsBySubject = (items: RecallItem[]) =>
-    items.reduce<Record<string, RecallItem[]>>((acc, item) => {
-      const key = item.subject || "Other";
-      (acc[key] ||= []).push(item);
-      return acc;
-    }, {});
-
-  const todayGrouped = useMemo(() => reviewsBySubject(todayItems), [todayItems]);
-  const calGrouped = useMemo(
-    () => reviewsBySubject(calRecall.dateItems),
-    [calRecall.dateItems]
+  const topicById = useMemo(
+    () => new Map(topics.map((t) => [t.id, t])),
+    [topics]
   );
+  const taskById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
+
+  // accrued study minutes per task
+  const studyMinByTask = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const s of sessions) {
+      if (s.kind !== "study") continue;
+      m.set(s.task_id, (m.get(s.task_id) ?? 0) + s.duration_min);
+    }
+    return m;
+  }, [sessions]);
+
+  // tasks grouped by topic (active topics with at least one task)
+  const groups = useMemo(() => {
+    const byTopic = new Map<string, StudyTask[]>();
+    for (const t of tasks) {
+      const arr = byTopic.get(t.topic_id);
+      if (arr) arr.push(t);
+      else byTopic.set(t.topic_id, [t]);
+    }
+    return [...byTopic.entries()]
+      .map(([topicId, list]) => ({
+        topic: topicById.get(topicId),
+        todo: list.filter((t) => t.status === "todo"),
+        done: list.filter((t) => t.status === "done"),
+      }))
+      .filter((g) => g.topic)
+      .sort((a, b) => a.topic!.name.localeCompare(b.topic!.name));
+  }, [tasks, topicById]);
+
+  const handleTaskSave = async (data: TaskFormData) => {
+    const topic = await ensureTopic.mutateAsync(data.topicName);
+    await upsertTask.mutateAsync({
+      ...(data.id ? { id: data.id } : {}),
+      topic_id: topic.id,
+      title: data.title,
+      estimate_blocks: data.estimate_blocks,
+      recall_enabled: data.recall_enabled,
+    });
+    toast(data.id ? "Task updated" : "Task added");
+  };
+
+  const handleSessionSave = (d: SessionFormData) => {
+    if (!sessionTask) return;
+    addSession.mutate(
+      {
+        task_id: sessionTask.id,
+        duration_min: d.minutes,
+        date: d.date,
+        note: d.note,
+        kind: "study",
+      },
+      { onSuccess: () => toast("Session logged") }
+    );
+  };
+
+  const handleReviewSave = (d: SessionFormData) => {
+    if (!reviewing) return;
+    completeReview.mutate(
+      { recall: reviewing, minutes: d.minutes },
+      { onSuccess: () => toast("Review done") }
+    );
+  };
 
   return (
     <>
       <PageHeader title="Study">
         <div className="flex gap-1">
-          <Chip selected={view === "log"} onClick={() => setView("log")}>
-            Log
+          <Chip selected={view === "tasks"} onClick={() => setView("tasks")}>
+            Tasks
           </Chip>
           <Chip selected={view === "review"} onClick={() => setView("review")}>
             Review{dueCount > 0 && ` (${dueCount})`}
           </Chip>
-          <Chip selected={view === "calendar"} onClick={() => setView("calendar")}>
-            Calendar
+          <Chip selected={view === "stats"} onClick={() => setView("stats")}>
+            Stats
           </Chip>
         </div>
       </PageHeader>
 
       <div className="px-4 py-4 flex flex-col gap-4">
-        {/* ===== LOG VIEW ===== */}
-        {view === "log" && (
-          <>
-            {logs.length === 0 ? (
-              <EmptyState
-                emoji="📚"
-                message="No study sessions logged yet. Tap + to get started."
-              />
-            ) : (
-              Object.entries(grouped).map(([date, items]) => (
-                <div key={date}>
-                  <h3 className="text-xs font-medium text-fg-muted px-1 mb-1">
-                    {groupLabel(date)}
-                  </h3>
-                  <Card className="p-0 overflow-hidden">
-                    {items.map((log) => (
-                      <div
-                        key={log.id}
-                        className="flex items-center justify-between px-4 py-3 border-b border-line last:border-0 cursor-pointer active:bg-elevated"
-                        onClick={() => {
-                          setEditing(log);
-                          setFormOpen(true);
-                        }}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm text-fg font-medium truncate">
-                            {log.subject}
-                          </div>
-                          <div className="text-xs text-fg-muted">
-                            {log.topic && <span>{log.topic} · </span>}
-                            {log.duration_min && <span>{log.duration_min}min</span>}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          {log.confidence && (
-                            <RatingDisplay value={log.confidence} color="bg-violet" />
-                          )}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setDeleting(log.id);
-                            }}
-                            className="p-2 text-fg-dim hover:text-danger transition-colors"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </Card>
-                </div>
-              ))
-            )}
-          </>
-        )}
+        {/* ===== TASKS ===== */}
+        {view === "tasks" &&
+          (groups.length === 0 ? (
+            <EmptyState
+              emoji="📚"
+              message="No tasks yet. Tap + to add your first study task."
+            />
+          ) : (
+            groups.map((g) => (
+              <div key={g.topic!.id}>
+                <h3 className="text-xs font-medium text-fg-muted px-1 mb-1">
+                  {g.topic!.name}
+                </h3>
+                <Card className="p-0 overflow-hidden">
+                  {[...g.todo, ...g.done].map((task) => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      accruedMin={studyMinByTask.get(task.id) ?? 0}
+                      onLog={() => setSessionTask(task)}
+                      onComplete={() =>
+                        completeTask.mutate(task, {
+                          onSuccess: () =>
+                            toast(
+                              task.recall_enabled
+                                ? "Done · recall scheduled"
+                                : "Task completed"
+                            ),
+                        })
+                      }
+                      onReopen={() => reopenTask.mutate(task)}
+                      onEdit={() => {
+                        setEditingTask(task);
+                        setTaskFormOpen(true);
+                      }}
+                      onDelete={() => setDeleting(task.id)}
+                    />
+                  ))}
+                </Card>
+              </div>
+            ))
+          ))}
 
-        {/* ===== REVIEW VIEW (today) ===== */}
+        {/* ===== REVIEW ===== */}
         {view === "review" && (
           <>
-            {completionPct !== null && (
-              <Card className="py-3">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-fg-muted">Today&apos;s reviews</span>
-                  <span className="text-sm text-fg">
-                    {todayReviewed}/{todayTotal}
-                    <span
-                      className={cn(
-                        "ml-2 text-xs px-2 py-0.5 rounded-full font-medium",
-                        completionPct === 100
-                          ? "bg-success/20 text-success"
-                          : completionPct >= 50
-                            ? "bg-brand/20 text-brand"
-                            : "bg-elevated text-fg-muted"
-                      )}
-                    >
-                      {completionPct}%
-                    </span>
-                  </span>
-                </div>
-                <div className="h-1.5 rounded-full bg-elevated overflow-hidden">
-                  <div
-                    className={cn(
-                      "h-full rounded-full transition-all",
-                      completionPct === 100 ? "bg-success" : "bg-brand"
-                    )}
-                    style={{ width: `${completionPct}%` }}
-                  />
-                </div>
-              </Card>
-            )}
-
-            {todayItems.length === 0 ? (
+            {dueItems.length === 0 ? (
               <EmptyState
-                emoji="📖"
-                message="No reviews due today. Log study sessions to build your review schedule."
+                emoji="🧠"
+                message="No reviews due. Complete recall-flagged tasks to build your schedule."
               />
             ) : (
-              <ReviewList
-                grouped={todayGrouped}
-                onToggle={(item) => {
-                  if (item.last_reviewed) {
-                    unmarkReviewed.mutate(item.id);
-                  } else {
-                    markReviewed.mutate(item.id);
-                  }
-                }}
-              />
+              <div>
+                <h3 className="text-xs font-medium text-fg-muted px-1 mb-1">
+                  Due now ({dueItems.length})
+                </h3>
+                <Card className="p-0 overflow-hidden">
+                  {dueItems.map((r) => (
+                    <ReviewRow
+                      key={r.id}
+                      recall={r}
+                      title={
+                        taskById.get(r.task_id)?.title ?? "(deleted task)"
+                      }
+                      topic={
+                        topicById.get(taskById.get(r.task_id)?.topic_id ?? "")
+                          ?.name
+                      }
+                      onDone={() => setReviewing(r)}
+                      onDefer={(days) =>
+                        deferReview.mutate(
+                          { recall: r, days },
+                          { onSuccess: () => toast(`Pushed ${days}d`) }
+                        )
+                      }
+                    />
+                  ))}
+                </Card>
+              </div>
+            )}
+
+            {upcomingItems.length > 0 && (
+              <div>
+                <h3 className="text-xs font-medium text-fg-muted px-1 mb-1">
+                  Upcoming
+                </h3>
+                <Card className="p-0 overflow-hidden">
+                  {upcomingItems.slice(0, 20).map((r) => {
+                    const t = taskById.get(r.task_id);
+                    return (
+                      <div
+                        key={r.id}
+                        className="flex items-center justify-between px-4 py-3 border-b border-line last:border-0"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-sm text-fg truncate">
+                            {t?.title ?? "(deleted task)"}
+                          </div>
+                          <div className="text-xs text-fg-dim">
+                            {topicById.get(t?.topic_id ?? "")?.name}
+                          </div>
+                        </div>
+                        <span className="text-xs text-fg-dim shrink-0">
+                          in {daysBetween(todayStr(), r.due_date)}d
+                        </span>
+                      </div>
+                    );
+                  })}
+                </Card>
+              </div>
             )}
           </>
         )}
 
-        {/* ===== CALENDAR VIEW ===== */}
-        {view === "calendar" && (
-          <>
-            <Card>
-              <ReviewCalendar
-                selectedDate={calDate}
-                onDayClick={(date) => setCalDate(date)}
-              />
-            </Card>
-
-            {calDate && (
-              <>
-                <h3 className="text-xs font-medium text-fg-muted px-1">
-                  {calDate === todayStr() ? "Today" : formatDate(calDate)}
-                  {calRecall.dateItems.length > 0 && (
-                    <span className="text-fg-dim ml-1">
-                      — {calRecall.dateItems.filter((i) => i.last_reviewed).length}/
-                      {calRecall.dateItems.length} reviewed
-                    </span>
-                  )}
-                </h3>
-                {calRecall.dateItems.length === 0 ? (
-                  <EmptyState
-                    emoji="📅"
-                    message="No reviews scheduled for this day."
-                  />
-                ) : (
-                  <ReviewList
-                    grouped={calGrouped}
-                    onToggle={(item) => {
-                      if (item.last_reviewed) {
-                        unmarkReviewed.mutate(item.id);
-                      } else {
-                        markReviewed.mutate(item.id);
-                      }
-                    }}
-                  />
-                )}
-              </>
-            )}
-          </>
+        {/* ===== STATS ===== */}
+        {view === "stats" && (
+          <StudyStats topics={topics} tasks={tasks} sessions={sessions} />
         )}
       </div>
 
-      {view === "log" && (
+      {view === "tasks" && (
         <Fab
           onClick={() => {
-            setEditing(null);
-            setFormOpen(true);
+            setEditingTask(null);
+            setTaskFormOpen(true);
           }}
         />
       )}
 
-      <StudyForm
-        open={formOpen}
-        onOpenChange={setFormOpen}
-        initial={editing}
-        subjects={subjects}
-        onSave={(data) => {
-          upsert.mutate(data, {
-            onSuccess: (result) => {
-              toast(editing ? "Updated" : "Study session logged");
-              if (!editing && result) {
-                const saved = result as StudyLog;
-                createReminders.mutate({
-                  study_log_id: saved.id,
-                  subject: saved.subject,
-                  topic: saved.topic,
-                  studyDate: saved.date,
-                });
-              }
-            },
-          });
-        }}
+      <TaskForm
+        open={taskFormOpen}
+        onOpenChange={setTaskFormOpen}
+        topics={topics}
+        initial={editingTask}
+        initialTopicName={
+          editingTask ? topicById.get(editingTask.topic_id)?.name : undefined
+        }
+        onSave={handleTaskSave}
+      />
+
+      <SessionForm
+        open={!!sessionTask}
+        onOpenChange={(o) => !o && setSessionTask(null)}
+        task={sessionTask}
+        onSave={handleSessionSave}
+      />
+
+      <SessionForm
+        open={!!reviewing}
+        onOpenChange={(o) => !o && setReviewing(null)}
+        task={reviewing ? taskById.get(reviewing.task_id) ?? null : null}
+        title="Complete review"
+        submitLabel="Mark reviewed"
+        defaultMinutes={10}
+        onSave={handleReviewSave}
       />
 
       <ConfirmDialog
         open={!!deleting}
         onOpenChange={() => setDeleting(null)}
-        title="Delete study entry?"
-        description="This entry and its review reminders will be removed."
+        title="Delete task?"
+        description="This task, its sessions and any recall schedule will be removed."
         confirmLabel="Delete"
         onConfirm={() => {
           if (deleting)
-            remove.mutate(deleting, { onSuccess: () => toast("Deleted") });
+            removeTask.mutate(deleting, { onSuccess: () => toast("Deleted") });
         }}
       />
     </>
   );
 }
 
-function ReviewList({
-  grouped,
-  onToggle,
+function TaskRow({
+  task,
+  accruedMin,
+  onLog,
+  onComplete,
+  onReopen,
+  onEdit,
+  onDelete,
 }: {
-  grouped: Record<string, RecallItem[]>;
-  onToggle: (item: RecallItem) => void;
+  task: StudyTask;
+  accruedMin: number;
+  onLog: () => void;
+  onComplete: () => void;
+  onReopen: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
+  const done = task.status === "done";
+  const estMin = task.estimate_blocks * BLOCK_MIN;
+
   return (
-    <>
-      {Object.entries(grouped).map(([subject, items]) => (
-        <div key={subject}>
-          <h3 className="text-xs font-medium text-fg-muted px-1 mb-1">
-            {subject}
-          </h3>
-          <Card className="p-0 overflow-hidden">
-            {items.map((item) => {
-              const done = !!item.last_reviewed;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => onToggle(item)}
-                  className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-0 w-full text-left active:bg-elevated transition-colors"
-                >
-                  {done ? (
-                    <div className="w-5 h-5 rounded-full bg-success/20 flex items-center justify-center shrink-0">
-                      <Check size={14} className="text-success" />
-                    </div>
-                  ) : (
-                    <Circle size={20} className="text-fg-dim shrink-0" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div
-                      className={cn(
-                        "text-sm truncate",
-                        done ? "text-fg-muted line-through" : "text-fg"
-                      )}
-                    >
-                      {item.prompt}
-                    </div>
-                    <div className="text-xs text-fg-dim">
-                      day {item.interval_days} review
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </Card>
+    <div className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-0">
+      <button
+        onClick={done ? onReopen : onComplete}
+        className={cn(
+          "w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-colors",
+          done
+            ? "bg-success/20 text-success"
+            : "border border-fg-dim text-transparent hover:border-success hover:text-success"
+        )}
+        title={done ? "Reopen" : "Mark done"}
+      >
+        <Check size={14} />
+      </button>
+
+      <div className="flex-1 min-w-0" onClick={onEdit}>
+        <div
+          className={cn(
+            "text-sm font-medium truncate",
+            done ? "text-fg-muted line-through" : "text-fg"
+          )}
+        >
+          {task.title}
         </div>
-      ))}
-    </>
+        <div className="flex items-center gap-2 text-xs text-fg-dim">
+          <span className="flex items-center gap-1">
+            <Clock size={11} />
+            {accruedMin}m / ~{estMin}m
+          </span>
+          {task.recall_enabled && (
+            <span className="flex items-center gap-1 text-violet">
+              <Brain size={11} /> recall
+            </span>
+          )}
+        </div>
+      </div>
+
+      {!done && (
+        <button
+          onClick={onLog}
+          className="p-1.5 text-fg-dim hover:text-brand shrink-0"
+          title="Log time"
+        >
+          <Plus size={16} />
+        </button>
+      )}
+      {done && (
+        <button
+          onClick={onReopen}
+          className="p-1.5 text-fg-dim hover:text-fg shrink-0"
+          title="Reopen"
+        >
+          <RotateCcw size={14} />
+        </button>
+      )}
+      <button
+        onClick={onEdit}
+        className="p-1.5 text-fg-dim hover:text-fg shrink-0"
+      >
+        <Pencil size={14} />
+      </button>
+      <button
+        onClick={onDelete}
+        className="p-1.5 text-fg-dim hover:text-danger shrink-0"
+      >
+        <Trash2 size={14} />
+      </button>
+    </div>
+  );
+}
+
+function ReviewRow({
+  recall,
+  title,
+  topic,
+  onDone,
+  onDefer,
+}: {
+  recall: StudyRecall;
+  title: string;
+  topic: string | undefined;
+  onDone: () => void;
+  onDefer: (days: number) => void;
+}) {
+  const overdue = daysBetween(recall.due_date, todayStr());
+
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-0">
+      <div className="flex-1 min-w-0">
+        <div className="text-sm text-fg font-medium truncate">{title}</div>
+        <div className="flex items-center gap-2 text-xs text-fg-dim">
+          {topic && <span>{topic}</span>}
+          <span>· {reviewLabel(recall.step)}</span>
+          {overdue > 0 && (
+            <span className="text-amber">· {overdue}d overdue</span>
+          )}
+        </div>
+      </div>
+
+      <button
+        onClick={() => onDefer(1)}
+        className="text-xs text-fg-dim hover:text-fg px-1.5 shrink-0"
+        title="Push 1 day"
+      >
+        +1d
+      </button>
+      <button
+        onClick={() => onDefer(7)}
+        className="text-xs text-fg-dim hover:text-fg px-1.5 shrink-0"
+        title="Push 1 week"
+      >
+        +1w
+      </button>
+      <button
+        onClick={onDone}
+        className="w-7 h-7 rounded-full bg-success text-bg flex items-center justify-center shrink-0"
+        title="Mark reviewed"
+      >
+        <Check size={15} />
+      </button>
+    </div>
   );
 }

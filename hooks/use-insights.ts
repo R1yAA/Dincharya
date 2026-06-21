@@ -6,8 +6,8 @@ import { useBody } from "./use-body";
 import { useSleep } from "./use-sleep";
 import { useCycle } from "./use-cycle";
 import { useHair } from "./use-hair";
-import { useStudy } from "./use-study";
-import { useRecall } from "./use-recall";
+import { useStudySessions } from "./use-study";
+import { useStudyRecall } from "./use-recall";
 import { useSettings } from "./use-settings";
 import { buildInsights, InsightCard } from "@/lib/insights";
 import { addDays, todayStr } from "@/lib/format";
@@ -30,8 +30,8 @@ export function useInsights(period: Period): { insights: InsightCard[]; isLoadin
   const { logs: sleep, isLoading: ls } = useSleep();
   const { days: cycle, isLoading: lc } = useCycle();
   const { logs: hair, isLoading: lh } = useHair();
-  const { logs: study, isLoading: lst } = useStudy();
-  const { items: recall, isLoading: lr } = useRecall();
+  const { sessions: study, isLoading: lst } = useStudySessions();
+  const { items: recall, isLoading: lr } = useStudyRecall();
   const { settings } = useSettings();
 
   const isLoading = lm || lb || ls || lc || lh || lst || lr;

@@ -12,6 +12,12 @@ const TABLES = [
   "hair_logs",
   "recall_items",
   "study_logs",
+  "study_sessions",
+  "study_recall",
+  "study_tasks",
+  "study_topics",
+  "supplement_logs",
+  "supplements",
   "settings",
 ];
 
