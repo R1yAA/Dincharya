@@ -40,7 +40,7 @@ export function SupplementSection({
     <div>
       <div className="flex items-center justify-between px-1 mb-1">
         <h3 className="text-xs font-medium text-fg-muted flex items-center gap-1">
-          <Pill size={12} /> Supplements
+          <Pill size={12} /> Recurring foods
         </h3>
         <button
           onClick={onAdd}

@@ -34,9 +34,65 @@ export interface Supplement {
   /** specific times to take, "HH:MM:SS" */
   times: string[];
   active: boolean;
+  /** optional linked library food — each "taken" log counts food profile x quantity */
+  food_id: string | null;
+  quantity: number;
   note: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// ===== Nutrition: user-defined nutrients, food library, per-meal items =====
+
+export interface Nutrient {
+  id: string;
+  workspace: string;
+  name: string;
+  unit: string;
+  daily_goal: number | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Food {
+  id: string;
+  workspace: string;
+  name: string;
+  /** e.g. "1 scoop (30g)", "1 glass" */
+  serving_label: string | null;
+  archived: boolean;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Amount of one nutrient in 1 serving of a food. */
+export interface FoodNutrient {
+  id: string;
+  workspace: string;
+  food_id: string;
+  nutrient_id: string;
+  amount: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MealItem {
+  id: string;
+  workspace: string;
+  meal_id: string;
+  food_id: string;
+  /** serving multiplier, e.g. 2 = two servings */
+  quantity: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Form-side draft of a meal item before it has a row id. */
+export interface MealItemDraft {
+  food_id: string;
+  quantity: number;
 }
 
 export interface SupplementLog {

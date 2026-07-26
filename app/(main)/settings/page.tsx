@@ -16,6 +16,11 @@ import { useCycle } from "@/hooks/use-cycle";
 import { useHair } from "@/hooks/use-hair";
 import { useStudyTopics, useStudyTasks, useStudySessions } from "@/hooks/use-study";
 import { useStudyRecall } from "@/hooks/use-recall";
+import { NutrientManager } from "@/components/nutrition/nutrient-manager";
+import { useNutrients } from "@/hooks/use-nutrients";
+import { useFoods } from "@/hooks/use-foods";
+import { useMealItemsRange } from "@/hooks/use-meal-items";
+import { todayStr } from "@/lib/format";
 import * as csv from "@/lib/csv";
 
 const MODULES = [
@@ -41,6 +46,9 @@ export default function SettingsPage() {
   const { tasks: studyTasks } = useStudyTasks();
   const { sessions: studySessions } = useStudySessions();
   const { items: recallItems } = useStudyRecall();
+  const { nutrients } = useNutrients();
+  const { foods, foodNutrients } = useFoods();
+  const { items: allMealItems } = useMealItemsRange("2000-01-01", todayStr());
 
   const [name, setName] = useState(settings?.user_name || "");
   const [cycleLen, setCycleLen] = useState(settings?.default_cycle_len?.toString() || "28");
@@ -80,6 +88,28 @@ export default function SettingsPage() {
     csv.downloadCsv(csv.hairCsv(hairLogs), "dincharya-hair.csv");
     csv.downloadCsv(csv.studySessionsCsv(sessionRows), "dincharya-study.csv");
     csv.downloadCsv(csv.studyRecallCsv(recallRows), "dincharya-recall.csv");
+    const nutrientById = new Map(nutrients.map((n) => [n.id, n]));
+    const foodById = new Map(foods.map((f) => [f.id, f]));
+    const mealById = new Map(meals.map((m) => [m.id, m.name]));
+    const foodRows = foodNutrients.map((fn) => {
+      const nutrient = nutrientById.get(fn.nutrient_id);
+      return {
+        food: foodById.get(fn.food_id)?.name ?? "",
+        serving: foodById.get(fn.food_id)?.serving_label ?? null,
+        nutrient: nutrient?.name ?? "",
+        amount: fn.amount,
+        unit: nutrient?.unit ?? "",
+      };
+    });
+    const mealItemRows = allMealItems.map((i) => ({
+      date: i.date,
+      meal: mealById.get(i.meal_id) ?? "",
+      food: foodById.get(i.food_id)?.name ?? "",
+      quantity: i.quantity,
+    }));
+    csv.downloadCsv(csv.nutrientsCsv(nutrients), "dincharya-nutrients.csv");
+    csv.downloadCsv(csv.foodsCsv(foodRows), "dincharya-foods.csv");
+    csv.downloadCsv(csv.mealItemsCsv(mealItemRows), "dincharya-meal-items.csv");
     toast("All CSVs downloaded");
   };
 
@@ -150,6 +180,8 @@ export default function SettingsPage() {
             Save
           </Button>
         </Card>
+
+        <NutrientManager />
 
         <Card>
           <h3 className="text-sm font-medium text-fg mb-3">Module visibility</h3>

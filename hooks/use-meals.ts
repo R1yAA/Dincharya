@@ -58,7 +58,8 @@ export function useMealsRange(from: string, to: string) {
   const { workspace } = useWorkspace();
 
   const query = useQuery({
-    queryKey: ["meals-range", workspace, from, to],
+    // Under the ["meals"] prefix so meal upsert/remove invalidations cover it.
+    queryKey: ["meals", workspace, "range", from, to],
     queryFn: async () => {
       const { data } = await supabase
         .from("meals")

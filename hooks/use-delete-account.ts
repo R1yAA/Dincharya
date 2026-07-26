@@ -4,7 +4,9 @@ import { useMutation } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase/client";
 import { useWorkspace } from "@/components/workspace/workspace-provider";
 
+// Children before parents (FK order).
 const TABLES = [
+  "meal_items",
   "meals",
   "body_checkins",
   "sleep_logs",
@@ -18,6 +20,9 @@ const TABLES = [
   "study_topics",
   "supplement_logs",
   "supplements",
+  "food_nutrients",
+  "foods",
+  "nutrients",
   "settings",
 ];
 

@@ -13,8 +13,12 @@ import { MealMixBar } from "@/components/meals/meal-mix-bar";
 import { MealCalendar } from "@/components/meals/meal-calendar";
 import { SupplementForm } from "@/components/meals/supplement-form";
 import { SupplementSection } from "@/components/meals/supplement-section";
+import { NutritionSummary } from "@/components/nutrition/nutrition-summary";
 import { useMeals, useMealsRange } from "@/hooks/use-meals";
 import { useSupplements } from "@/hooks/use-supplements";
+import { useMealItemsRange, useMealItems } from "@/hooks/use-meal-items";
+import { useFoods } from "@/hooks/use-foods";
+import { useNutrients } from "@/hooks/use-nutrients";
 import { useToast } from "@/components/ui/toast";
 import { Meal, Supplement } from "@/lib/supabase/types";
 import { groupLabel, todayStr } from "@/lib/format";
@@ -34,6 +38,10 @@ export default function MealsPage() {
     setStatus,
     clearStatus,
   } = useSupplements(anchor);
+  const { items: rangeItems } = useMealItemsRange(range.from, range.to);
+  const { setItemsForMeal } = useMealItems();
+  const { foodNutrients } = useFoods();
+  const { nutrients } = useNutrients();
   const { toast } = useToast();
 
   const [formOpen, setFormOpen] = useState(false);
@@ -44,6 +52,12 @@ export default function MealsPage() {
 
   // In day view the range is a single day, so rangeMeals IS that day's meals.
   const dayMeals = rangeMeals;
+
+  // Stable reference so MealForm's hydrate effect doesn't re-fire every render.
+  const editingItems = useMemo(
+    () => (editing ? rangeItems.filter((i) => i.meal_id === editing.id) : []),
+    [editing, rangeItems]
+  );
 
   const today = todayStr();
   const todayInRange = today >= range.from && today <= range.to;
@@ -95,6 +109,15 @@ export default function MealsPage() {
               </div>
               <MealMixBar meals={dayMeals} />
             </Card>
+
+            <NutritionSummary
+              date={anchor}
+              items={rangeItems}
+              supplements={supplements}
+              logs={logs}
+              foodNutrients={foodNutrients}
+              nutrients={nutrients}
+            />
 
             <SupplementSection
               date={anchor}
@@ -190,10 +213,14 @@ export default function MealsPage() {
         open={formOpen}
         onOpenChange={setFormOpen}
         initial={editing}
+        initialItems={editingItems}
         defaultDate={formDefaultDate}
-        onSave={(meal) => {
+        onSave={(meal, items) => {
           upsert.mutate(meal, {
-            onSuccess: () => toast(editing ? "Meal updated" : "Meal logged"),
+            onSuccess: (saved) => {
+              if (saved?.id) setItemsForMeal.mutate({ meal_id: saved.id, items });
+              toast(editing ? "Meal updated" : "Meal logged");
+            },
           });
         }}
       />
@@ -205,7 +232,7 @@ export default function MealsPage() {
         onSave={(s) => {
           upsertSupp.mutate(s, {
             onSuccess: () =>
-              toast(editingSupp ? "Supplement updated" : "Supplement added"),
+              toast(editingSupp ? "Recurring food updated" : "Recurring food added"),
           });
         }}
       />

@@ -124,3 +124,28 @@ export function useSupplements(date?: string) {
     clearStatus,
   };
 }
+
+/**
+ * Supplement logs within [from, to] — for nutrition totals over a range.
+ * Keyed under the ["supplement-logs"] prefix so setStatus/clearStatus
+ * invalidations refresh it too.
+ */
+export function useSupplementLogsRange(from: string, to: string) {
+  const { workspace } = useWorkspace();
+
+  const query = useQuery({
+    queryKey: ["supplement-logs", workspace, "range", from, to],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("supplement_logs")
+        .select("*")
+        .eq("workspace", workspace!)
+        .gte("date", from)
+        .lte("date", to);
+      return (data || []) as SupplementLog[];
+    },
+    enabled: !!workspace && !!from && !!to,
+  });
+
+  return { logs: query.data || [], isLoading: query.isLoading };
+}

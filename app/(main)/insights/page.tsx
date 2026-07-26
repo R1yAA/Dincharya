@@ -7,11 +7,16 @@ import { Input } from "@/components/ui/input";
 import { PeriodBar } from "@/components/ui/period-bar";
 import {
   MealsChart,
+  NutritionChart,
   SleepChart,
   StudyChart,
   BodyChart,
 } from "@/components/insights/charts";
 import { useMeals } from "@/hooks/use-meals";
+import { useMealItemsRange } from "@/hooks/use-meal-items";
+import { useFoods } from "@/hooks/use-foods";
+import { useNutrients } from "@/hooks/use-nutrients";
+import { useSupplements, useSupplementLogsRange } from "@/hooks/use-supplements";
 import { useSleep } from "@/hooks/use-sleep";
 import { useBody } from "@/hooks/use-body";
 import { useCycle } from "@/hooks/use-cycle";
@@ -50,6 +55,11 @@ export default function InsightsPage() {
   const { sessions } = useStudySessions(range.from, range.to);
   const { items: recall } = useStudyRecall();
   const { settings } = useSettings();
+  const { nutrients } = useNutrients();
+  const { foodNutrients } = useFoods();
+  const { items: mealItems } = useMealItemsRange(range.from, range.to);
+  const { supplements } = useSupplements();
+  const { logs: suppLogs } = useSupplementLogsRange(range.from, range.to);
 
   const meals = useMemo(
     () => allMeals.filter((m) => m.date >= range.from && m.date <= range.to),
@@ -157,6 +167,14 @@ export default function InsightsPage() {
 
         {/* Visualizations */}
         <MealsChart meals={meals} buckets={buckets} />
+        <NutritionChart
+          nutrients={nutrients}
+          items={mealItems}
+          supplements={supplements}
+          logs={suppLogs}
+          foodNutrients={foodNutrients}
+          buckets={buckets}
+        />
         <SleepChart sleep={sleep} buckets={buckets} />
         <StudyChart sessions={sessions} buckets={buckets} />
         <BodyChart body={body} buckets={buckets} />

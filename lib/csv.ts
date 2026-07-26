@@ -64,6 +64,27 @@ export function studyRecallCsv(items: { topic: string; task: string; step: numbe
   );
 }
 
+export function nutrientsCsv(items: { name: string; unit: string; daily_goal: number | null }[]): string {
+  return buildCsv(
+    ["Name", "Unit", "Daily Goal"],
+    items.map((n) => [n.name, n.unit, n.daily_goal])
+  );
+}
+
+export function foodsCsv(items: { food: string; serving: string | null; nutrient: string; amount: number; unit: string }[]): string {
+  return buildCsv(
+    ["Food", "Serving", "Nutrient", "Amount", "Unit"],
+    items.map((f) => [f.food, f.serving, f.nutrient, f.amount, f.unit])
+  );
+}
+
+export function mealItemsCsv(items: { date: string; meal: string; food: string; quantity: number }[]): string {
+  return buildCsv(
+    ["Date", "Meal", "Food", "Quantity"],
+    items.map((i) => [i.date, i.meal, i.food, i.quantity])
+  );
+}
+
 export function downloadCsv(content: string, filename: string) {
   const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);

@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -13,8 +14,25 @@ import {
   CartesianGrid,
 } from "recharts";
 import { Card } from "@/components/ui/card";
-import { Meal, SleepLog, StudySession, BodyCheckin } from "@/lib/supabase/types";
+import { Chip } from "@/components/ui/chip";
+import {
+  Meal,
+  SleepLog,
+  StudySession,
+  BodyCheckin,
+  Nutrient,
+  Supplement,
+  SupplementLog,
+  FoodNutrient,
+} from "@/lib/supabase/types";
 import { CHART, tooltipStyle, tickInterval, Bucket, bucketOf } from "@/lib/chart";
+import {
+  DatedMealItem,
+  dailyTotals,
+  fmtAmount,
+  nutrientBucketSeries,
+  profileMap,
+} from "@/lib/nutrition";
 
 const AXIS = { stroke: CHART.axis, fontSize: 10, tickLine: false, axisLine: false };
 const H = 180;
@@ -126,6 +144,108 @@ export function MealsChart({
             ]}
           />
         </>
+      )}
+    </ChartCard>
+  );
+}
+
+// ===================== NUTRITION =====================
+export function NutritionChart({
+  nutrients,
+  items,
+  supplements,
+  logs,
+  foodNutrients,
+  buckets,
+}: {
+  nutrients: Nutrient[];
+  items: DatedMealItem[];
+  supplements: Supplement[];
+  logs: SupplementLog[];
+  foodNutrients: FoodNutrient[];
+  buckets: Bucket[];
+}) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const active =
+    nutrients.find((n) => n.id === selectedId) ||
+    nutrients.find((n) => n.daily_goal !== null) ||
+    nutrients[0];
+
+  const totals = useMemo(
+    () =>
+      dailyTotals({
+        items,
+        supplements,
+        logs,
+        profiles: profileMap(foodNutrients),
+      }),
+    [items, supplements, logs, foodNutrients]
+  );
+
+  if (nutrients.length === 0) return null;
+
+  const data = nutrientBucketSeries(buckets, totals, active.id).map((d) => ({
+    label: d.label,
+    value: d.value != null ? Math.round(d.value * 10) / 10 : null,
+  }));
+  const hasData = data.some((d) => d.value != null);
+
+  // Per-day goal stats across the range, independent of bucket size.
+  let daysWithData = 0;
+  let daysHit = 0;
+  let sum = 0;
+  for (const day of totals.values()) {
+    const v = day.get(active.id) || 0;
+    if (v <= 0) continue;
+    daysWithData++;
+    sum += v;
+    if (active.daily_goal !== null && v >= active.daily_goal) daysHit++;
+  }
+  const stat = daysWithData
+    ? [
+        `avg ${fmtAmount(sum / daysWithData)}${active.unit}/day`,
+        active.daily_goal !== null &&
+          `goal ${fmtAmount(active.daily_goal)}${active.unit}`,
+        active.daily_goal !== null && `hit ${daysHit}/${daysWithData} days`,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : undefined;
+
+  return (
+    <ChartCard title="Nutrition" stat={stat}>
+      {nutrients.length > 1 && (
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {nutrients.map((n) => (
+            <Chip
+              key={n.id}
+              selected={n.id === active.id}
+              onClick={() => setSelectedId(n.id)}
+            >
+              {n.name}
+            </Chip>
+          ))}
+        </div>
+      )}
+      {!hasData ? (
+        <EmptyChart message="No foods logged in this range." />
+      ) : (
+        <ResponsiveContainer width="100%" height={H}>
+          <BarChart data={data} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+            <CartesianGrid stroke={CHART.grid} vertical={false} />
+            <XAxis dataKey="label" {...AXIS} interval={tickInterval(data.length)} />
+            <YAxis {...AXIS} width={28} domain={[0, "dataMax + 1"]} />
+            <Tooltip contentStyle={tooltipStyle} cursor={{ fill: CHART.grid }} />
+            {active.daily_goal !== null && (
+              <ReferenceLine
+                y={active.daily_goal}
+                stroke={CHART.amber}
+                strokeDasharray="3 3"
+              />
+            )}
+            <Bar dataKey="value" name={`${active.name} (${active.unit})`} fill={CHART.brand} radius={[3, 3, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
       )}
     </ChartCard>
   );
