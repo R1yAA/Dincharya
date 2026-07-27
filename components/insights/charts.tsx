@@ -367,6 +367,8 @@ export function BodyChart({
   buckets: Bucket[];
 }) {
   const wAcc = buckets.map(() => ({ sum: 0, n: 0 }));
+  const eAcc = buckets.map(() => ({ sum: 0, n: 0 }));
+  const mAcc = buckets.map(() => ({ sum: 0, n: 0 }));
   let eSum = 0,
     eN = 0,
     mSum = 0,
@@ -379,19 +381,28 @@ export function BodyChart({
       wAcc[i].n++;
     }
     if (c.energy != null) {
+      eAcc[i].sum += c.energy;
+      eAcc[i].n++;
       eSum += c.energy;
       eN++;
     }
     if (c.mood != null) {
+      mAcc[i].sum += c.mood;
+      mAcc[i].n++;
       mSum += c.mood;
       mN++;
     }
   }
+  const avg = (a: { sum: number; n: number }) =>
+    a.n ? +(a.sum / a.n).toFixed(1) : null;
   const data = buckets.map((b, i) => ({
     label: b.label,
-    weight: wAcc[i].n ? +(wAcc[i].sum / wAcc[i].n).toFixed(1) : null,
+    weight: avg(wAcc[i]),
+    energy: avg(eAcc[i]),
+    mood: avg(mAcc[i]),
   }));
   const hasWeight = data.some((d) => d.weight != null);
+  const hasRatings = eN > 0 || mN > 0;
   const avgE = eN ? (eSum / eN).toFixed(1) : "–";
   const avgM = mN ? (mSum / mN).toFixed(1) : "–";
 
@@ -421,8 +432,41 @@ export function BodyChart({
             />
           </LineChart>
         </ResponsiveContainer>
+      ) : hasRatings ? (
+        <>
+          <ResponsiveContainer width="100%" height={H}>
+            <LineChart data={data} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+              <CartesianGrid stroke={CHART.grid} vertical={false} />
+              <XAxis dataKey="label" {...AXIS} interval={tickInterval(data.length)} />
+              <YAxis {...AXIS} width={32} domain={[0, 5]} ticks={[1, 2, 3, 4, 5]} />
+              <Tooltip contentStyle={tooltipStyle} />
+              <Line
+                type="monotone"
+                dataKey="energy"
+                stroke={CHART.accent2}
+                strokeWidth={2}
+                dot={{ r: 2 }}
+                connectNulls
+              />
+              <Line
+                type="monotone"
+                dataKey="mood"
+                stroke={CHART.violet}
+                strokeWidth={2}
+                dot={{ r: 2 }}
+                connectNulls
+              />
+            </LineChart>
+          </ResponsiveContainer>
+          <Legend
+            items={[
+              { label: "Energy (1-5)", color: CHART.accent2 },
+              { label: "Mood (1-5)", color: CHART.violet },
+            ]}
+          />
+        </>
       ) : (
-        <EmptyChart message="No weight logged — energy & mood shown above." />
+        <EmptyChart message="No weight, energy or mood logged in this range." />
       )}
     </ChartCard>
   );
